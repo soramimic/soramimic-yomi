@@ -1,6 +1,6 @@
 # soramimi-yomi
 
-空耳アプリ([Soramimic](https://github.com/jiroshimaya/soramimic)等)用の読み推定ライブラリ+API。
+空耳アプリ([Soramimic](https://github.com/soramimic/soramimic)等)用の読み推定ライブラリ+API。
 [pyopenjtalk-plus](https://github.com/tsukumijima/pyopenjtalk-plus) をベースに、
 空耳用途の工夫を重ねる:
 
