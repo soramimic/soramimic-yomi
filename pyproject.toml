@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.11"
 dependencies = [
     "pyopenjtalk-plus>=0.4.1.post8",
+    "e2k>=0.6.2",
 ]
 
 [project.optional-dependencies]

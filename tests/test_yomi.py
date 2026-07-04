@@ -1,4 +1,5 @@
 import soramimi_yomi
+from soramimi_yomi.rules import english as english_rules
 
 
 def test_basic_yomi():
@@ -18,10 +19,30 @@ def test_numbers():
 
 
 def test_english_rule():
-    # BEP辞書による英語→カナ(素のpyopenjtalkはスペル読みしてしまう)
+    # CMUdict+e2kによる英語→カナ(素のpyopenjtalkはスペル読みしてしまう)
     yomi = soramimi_yomi.get_yomi("Hello, nice to meet you")
     assert "エヌ" not in yomi  # スペル読みになっていない
     assert yomi.startswith("ハロー")
+
+
+def test_english_rule_override_path():
+    # (a) 自前例外辞書(data/english_overrides.csv)が最優先で引かれる
+    assert english_rules._convert_word("worried") == "ワーリド"
+
+
+def test_english_rule_cmudict_p2k_path():
+    # (b) CMUdict収録語は発音(ARPAbet)ベースのe2k.P2Kで変換される
+    assert "nice" in english_rules._cmudict()
+    assert english_rules._convert_word("nice") == "ナイス"
+
+
+def test_english_rule_c2k_fallback_path():
+    # (c) CMUdict未収録語は綴りベースのe2k.C2Kにフォールバックする
+    word = "anthropic"
+    assert word not in english_rules._cmudict()
+    kana = english_rules._convert_word(word)
+    assert kana  # 何らかのカナに変換される
+    assert "エー" not in kana and "エヌ" not in kana  # スペル読みになっていない
 
 
 def test_accent_marks_stripped():
