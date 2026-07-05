@@ -1,5 +1,5 @@
 [project]
-name = "soramimi-yomi"
+name = "soramimic-yomi"
 version = "0.1.0"
 description = "空耳アプリ用の読み推定ライブラリ+API(pyopenjtalk-plusベース、ユーザー辞書・英語カナ変換付き)"
 readme = "README.md"

@@ -1,4 +1,4 @@
-# soramimi-yomi
+# soramimic-yomi
 
 空耳アプリ([Soramimic](https://github.com/soramimic/soramimic)等)用の読み推定ライブラリ+API。
 [pyopenjtalk-plus](https://github.com/tsukumijima/pyopenjtalk-plus) をベースに、
@@ -13,13 +13,13 @@
 **① Pythonライブラリとして**(単語リストの読み付与、データパイプライン)
 
 ```python
-import soramimi_yomi
-soramimi_yomi.get_yomi("夕焼小焼の赤とんぼ")   # ユウヤケコヤケノアカトンボ
-soramimi_yomi.get_tokens("海は広いな")          # kuromoji.js互換のトークン列
+import soramimic_yomi
+soramimic_yomi.get_yomi("夕焼小焼の赤とんぼ")   # ユウヤケコヤケノアカトンボ
+soramimic_yomi.get_tokens("海は広いな")          # kuromoji.js互換のトークン列
 ```
 
 ```sh
-uv add "soramimi-yomi @ git+https://github.com/soramimic/soramimi-yomi"
+uv add "soramimic-yomi @ git+https://github.com/soramimic/soramimic-yomi"
 ```
 
 **② APIとして**(ブラウザアプリからの利用。soramimicはプログレッシブエンハンスメントで利用予定)
@@ -34,9 +34,9 @@ uv run uvicorn api.main:app --port 8080
 
 ## 語彙・ルールの追加
 
-- 読みがおかしい語を見つけたら `src/soramimi_yomi/dic/user.csv` に1行追加(OpenJTalk拡張のMeCab CSV形式)
-- 英単語のカナ変換がおかしい場合は `src/soramimi_yomi/data/english_overrides.csv`(`word,kana`)に追記すると最優先で適用される
-- テキスト前処理を足したいときは `src/soramimi_yomi/rules/` にモジュールを追加して `DEFAULT_RULES` に登録
+- 読みがおかしい語を見つけたら `src/soramimic_yomi/dic/user.csv` に1行追加(OpenJTalk拡張のMeCab CSV形式)
+- 英単語のカナ変換がおかしい場合は `src/soramimic_yomi/data/english_overrides.csv`(`word,kana`)に追記すると最優先で適用される
+- テキスト前処理を足したいときは `src/soramimic_yomi/rules/` にモジュールを追加して `DEFAULT_RULES` に登録
 
 ## 英語→カナ変換の仕組み
 

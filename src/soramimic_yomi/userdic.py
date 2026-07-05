@@ -14,8 +14,9 @@ import pyopenjtalk
 
 _PACKAGE_DIR = Path(__file__).parent
 USER_CSV = _PACKAGE_DIR / "dic" / "user.csv"
+# 環境変数名は稼働中Cloud Runの設定(deploy.yaml)と揃えて維持する
 _CACHE_DIR = Path(
-    os.environ.get("SORAMIMI_YOMI_CACHE", Path.home() / ".cache" / "soramimi-yomi")
+    os.environ.get("SORAMIMI_YOMI_CACHE", Path.home() / ".cache" / "soramimic-yomi")
 )
 
 _loaded = False
