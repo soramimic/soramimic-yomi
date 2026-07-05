@@ -1,0 +1,46 @@
+name: deploy
+# mainへのpush(API挙動に影響するファイルの変更時)でCloud Runへ自動デプロイする。
+# 認証はWorkload Identity Federation(キーレス)。シークレット登録は不要。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile"
+      - ".github/workflows/deploy.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/781811236862/locations/global/workloadIdentityPools/github/providers/github-oidc
+          service_account: soramimi-yomi-deployer@soramimi-501414.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: deploy to Cloud Run
+        run: |
+          gcloud run deploy soramimi-yomi --source . --project soramimi-501414 \
+            --region asia-northeast1 --allow-unauthenticated --memory 512Mi \
+            --min-instances 0 --set-env-vars SORAMIMI_YOMI_CACHE=/tmp/soramimi-yomi --quiet
+      - name: smoke check
+        run: |
+          URL=$(gcloud run services describe soramimi-yomi --project soramimi-501414 \
+            --region asia-northeast1 --format 'value(status.url)')
+          curl -sf --retry 3 --retry-delay 5 "$URL/health"
+          yomi=$(curl -sf -X POST "$URL/yomi" -H 'Content-Type: application/json' \
+            -d '{"text":"夕焼小焼"}' | jq -r .yomi)
+          test "$yomi" = "ユウヤケコヤケ"
