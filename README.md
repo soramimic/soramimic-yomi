@@ -40,7 +40,8 @@ uv run uvicorn api.main:app --port 8080
 
 ## 英語→カナ変換の仕組み
 
-`rules/english.py` は英単語(正規表現 `[A-Za-z][A-Za-z']*` で抽出したトークン)を、以下の優先順位でカナに変換する:
+`rules/english.py` は英単語（ASCII英字、および単語内部の straight apostrophe
+`'` / curly apostrophe `’`）を、以下の優先順位でカナに変換する:
 
 1. 自前の例外辞書 `data/english_overrides.csv` — 機械変換の結果が明らかにおかしい頻出語の上書き
 2. [CMUdict](https://github.com/cmusphinx/cmudict) に収録されている語は、その発音(ARPAbet音素列、主発音のみ)を [e2k](https://github.com/Patchethium/e2k) の `P2K` でカナ化
@@ -52,6 +53,33 @@ BSD類似の寛容ライセンス(著作権表示の保持のみ要求。全文:
 **PyPIの `cmudict` パッケージ(GPL-3.0-or-later のラッパー)は使用していない。**
 e2k はコード自体が Unlicense。
 
+## `/tokenize` の token 契約（version 2）
+
+レスポンス envelope（単一入力は `{"tokens": [...]}`、配列入力は
+`{"tokens": [[...], ...]}`）と既存の kuromoji.js 互換キーは維持される。
+`GET /health` の `token_contract_version` が `2` で、`capabilities` の
+`lossless_surface` と `english_reading` が `true` の場合、次の契約を利用できる。
+
+- 返された全 token の `surface_form` を順番に連結すると、入力文字列と完全一致する。
+  pyopenjtalk 内部の全角化は公開表層に反映しない。
+- 連続する空白（半角・全角空白、タブ、改行を含む）は最大単位の1 token とし、
+  `pos: "記号"`、`pos_detail_1: "空白"`、`reading: ""`、
+  `pronunciation: ""`、`is_silent: true` で返す。行頭・行末・空白だけの入力も
+  順序と個数を保持する。
+- ASCII英単語は `pos: "名詞"`、`pos_detail_1: "一般"` とし、有効なカナ読みを返す。
+  `don't` と `don’t` のような単語内 apostrophe は表層を変えず単一の lexical token
+  として扱い、両表記に同じ読みを付与する。
+- 読みに寄与しない記号は表層を保持し、`reading: ""`、
+  `pronunciation: ""`、`is_silent: true` とする。読みを持つ token は
+  `is_silent: false` である。
+- `pronunciation` を順番に連結すると、空白・句読点を除いた入力全体の読みになる。
+  解析器との表層対応を安全に確定できない稀な入力では、原文を1 token に保持した
+  うえで集約読みを返し、表層を欠落・置換しない。
+
+例: `I love you` は `I` / 空白 / `love` / 空白 / `you` となり、
+`pronunciation` の連結は `アイラヴユー`、`surface_form` の連結は元の
+`I love you` になる。
+
 ## 開発
 
 ```sh
@@ -61,8 +89,10 @@ uv run pytest
 
 ## 既知の挙動
 
-- pyopenjtalk は英数字の表層を全角に正規化する(`Hello`→`Ｈｅｌｌｏ`)
-- `get_tokens()` はデフォルトで正規化ルールを適用しない(表層保持。英語処理は利用側の裁量)
+- pyopenjtalk は内部で英数字を全角に正規化するが、`get_tokens()` は原文表層へ
+  対応付けて返す
+- `get_tokens()` の `apply_rules` 引数は後方互換のため残している。version 2では
+  引数にかかわらず表層を変えず、英語 token 自体に読みを付与する
 - 読みのアクセント記号(`’`)は除去して返す
 
 ## デプロイ

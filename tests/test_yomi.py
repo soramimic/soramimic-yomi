@@ -64,7 +64,67 @@ def test_tokens_kuromoji_compatible():
 
 
 def test_tokens_keep_surface():
-    # /tokenize は表層を保つ(英語正規化を適用しない)。
-    # ただし pyopenjtalk は英字を全角に正規化する点に注意
+    # /tokenize は pyopenjtalk の全角化を公開せず、入力表層を保つ。
     tokens = soramimic_yomi.get_tokens("Hello world")
-    assert any("Ｈｅｌｌｏ" in t["surface_form"] for t in tokens)
+    assert "".join(t["surface_form"] for t in tokens) == "Hello world"
+    normalized_tokens = soramimic_yomi.get_tokens("Hello world", apply_rules=True)
+    assert "".join(t["surface_form"] for t in normalized_tokens) == "Hello world"
+
+
+def test_tokens_preserve_all_whitespace_and_silence_it():
+    text = "  Hello\tworld  "
+    tokens = soramimic_yomi.get_tokens(text)
+
+    assert "".join(t["surface_form"] for t in tokens) == text
+    assert [t["surface_form"] for t in tokens if t["pos_detail_1"] == "空白"] == [
+        "  ", "\t", "  "
+    ]
+    for token in (t for t in tokens if t["pos_detail_1"] == "空白"):
+        assert token["reading"] == ""
+        assert token["pronunciation"] == ""
+        assert token["is_silent"] is True
+
+
+def test_english_tokens_have_readings_regardless_of_part_of_speech_heuristics():
+    tokens = soramimic_yomi.get_tokens("I love you")
+    spoken = [t for t in tokens if not t["is_silent"]]
+
+    assert [t["surface_form"] for t in spoken] == ["I", "love", "you"]
+    assert [t["pronunciation"] for t in spoken] == ["アイ", "ラヴ", "ユー"]
+    assert all(t["pos"] == "名詞" and t["pos_detail_1"] == "一般" for t in spoken)
+    assert "".join(t["pronunciation"] for t in tokens) == "アイラヴユー"
+
+
+def test_apostrophe_contraction_is_one_token_for_both_forms():
+    straight = soramimic_yomi.get_tokens("don't stop")
+    curly = soramimic_yomi.get_tokens("don’t stop")
+
+    assert [t["surface_form"] for t in straight] == ["don't", " ", "stop"]
+    assert [t["surface_form"] for t in curly] == ["don’t", " ", "stop"]
+    assert straight[0]["pronunciation"] == curly[0]["pronunciation"] == "ドーント"
+    assert "".join(t["pronunciation"] for t in straight) == "ドーントストップ"
+    assert soramimic_yomi.get_yomi("don't stop") == soramimic_yomi.get_yomi(
+        "don’t stop"
+    )
+
+
+def test_mixed_japanese_punctuation_and_ruby_like_surface_are_lossless():
+    for text, yomi in (
+        ("Iとyou、love!", "アイトユーラヴ"),
+        ("ルビ｜漢字《かんじ》", "ルビカンジカンジ"),
+    ):
+        tokens = soramimic_yomi.get_tokens(text)
+        assert "".join(t["surface_form"] for t in tokens) == text
+        assert "".join(t["pronunciation"] for t in tokens) == yomi
+
+    punctuation = soramimic_yomi.get_tokens("、。!?｜《》")
+    assert "".join(t["surface_form"] for t in punctuation) == "、。!?｜《》"
+    assert all(t["is_silent"] and t["pronunciation"] == "" for t in punctuation)
+
+
+def test_empty_and_whitespace_only_inputs_are_lossless():
+    assert soramimic_yomi.get_tokens("") == []
+    tokens = soramimic_yomi.get_tokens(" \t  ")
+    assert len(tokens) == 1
+    assert tokens[0]["surface_form"] == " \t  "
+    assert tokens[0]["is_silent"] is True
