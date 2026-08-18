@@ -28,7 +28,14 @@ class TextRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "token_contract_version": 2,
+        "capabilities": {
+            "lossless_surface": True,
+            "english_reading": True,
+        },
+    }
 
 
 @app.post("/yomi")

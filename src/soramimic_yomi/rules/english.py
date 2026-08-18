@@ -31,7 +31,7 @@ _DATA_DIR = Path(__file__).parent.parent / "data"
 _CMUDICT_PATH = _DATA_DIR / "cmudict.dict"
 _OVERRIDES_PATH = _DATA_DIR / "english_overrides.csv"
 
-_ENGLISH_WORD = re.compile(r"[A-Za-z][A-Za-z']*")
+_ENGLISH_WORD = re.compile(r"[A-Za-z]+(?:['\u2019][A-Za-z]+)*")
 # CMUdict の異形エントリ("word(2)" 等)を検出する
 _ALT_PRON_RE = re.compile(r"^(.*)\(\d+\)$")
 
@@ -94,7 +94,9 @@ def _c2k():
 @lru_cache(maxsize=None)
 def _convert_word(word: str) -> str:
     """英単語1語をカナに変換する(語単位でキャッシュ)。"""
-    lower = word.lower()
+    # CMUdict uses ASCII apostrophes.  Treat typographic apostrophes as the
+    # same lexical spelling while preserving the caller's original surface.
+    lower = word.lower().replace("\u2019", "'")
 
     override = _overrides().get(lower)
     if override is not None:
