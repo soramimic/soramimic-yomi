@@ -16,6 +16,7 @@
 import soramimic_yomi
 soramimic_yomi.get_yomi("夕焼小焼の赤とんぼ")   # ユウヤケコヤケノアカトンボ
 soramimic_yomi.get_tokens("海は広いな")          # kuromoji.js互換のトークン列
+soramimic_yomi.get_yomi_candidates("AI 4443")    # 構造化された読みN-best
 ```
 
 ```sh
@@ -27,7 +28,9 @@ uv add "soramimic-yomi @ git+https://github.com/soramimic/soramimic-yomi"
 ```sh
 uv sync --extra api
 uv run uvicorn api.main:app --port 8080
-# POST /yomi {"text": "..."} , POST /tokenize {"text": [...]}, GET /health
+# POST /yomi {"text": "..."}
+# POST /yomi_candidates {"text": "...", "nbest": 8}
+# POST /tokenize {"text": [...]}, GET /health
 ```
 
 **③ テストオラクルとして** — JS側に読み処理を移植する際の期待値生成に使う
@@ -44,7 +47,7 @@ uv run uvicorn api.main:app --port 8080
 `'` / curly apostrophe `’`）を、以下の優先順位でカナに変換する:
 
 1. 自前の例外辞書 `data/english_overrides.csv` — 機械変換の結果が明らかにおかしい頻出語の上書き
-2. [CMUdict](https://github.com/cmusphinx/cmudict) に収録されている語は、その発音(ARPAbet音素列、主発音のみ)を [e2k](https://github.com/Patchethium/e2k) の `P2K` でカナ化
+2. [CMUdict](https://github.com/cmusphinx/cmudict) に収録されている語は、その主発音(ARPAbet音素列)を [e2k](https://github.com/Patchethium/e2k) の `P2K` でカナ化。異形発音もN-best用に保持
 3. CMUdict未収録語は e2k の `C2K` で綴りから直接カナ化
 
 CMUdict は Carnegie Mellon University が配布する発音辞書で、データ本体(`data/cmudict.dict`)は
@@ -52,6 +55,36 @@ BSD類似の寛容ライセンス(著作権表示の保持のみ要求。全文:
 `cmusphinx/cmudict` の `cmudict.dict` をそのまま同梱し、自前のパーサで読んでいる。
 **PyPIの `cmudict` パッケージ(GPL-3.0-or-later のラッパー)は使用していない。**
 e2k はコード自体が Unlicense。
+
+## 読み候補（N-best）
+
+`get_yomi_candidates(text, nbest=8)` は、解析器固有の形態素経路ではなく、
+空耳・歌詞照合で比較できる**異なる全文読み**を良い順に返す。第1候補は常に
+`get_yomi(text)` と完全一致するため、既存の1-best利用側は変更不要。
+
+現在は次の候補を上限付きで組み合わせる。
+
+- 複数桁の通常読みと桁読み（`4443`: `ヨンセン…` / `ヨンヨンヨンサン`）
+- 英字列の単語読みと文字名読み（`AI`: `アイ` / `エーアイ`）
+- CMUdictに登録された英単語の異形発音
+- 2〜3語の英語窓に対する連結、弱形、境界融合（`did you`: `ディドユー` / `デジュ`）
+
+候補は `ReadingCandidate` で、全文の `reading`、ゼロ始まりの `rank`、生成側の
+相対的な `cost`、`sources`、既定読みから変えた表層区間 `spans` を持つ。
+`cost` は音響尤度ではない。音源がある利用側は候補集合を保ったままCTCなどで
+再順位付けする。候補生成は直積を無制限に作らず、beamで抑制する。
+
+```python
+candidate = soramimic_yomi.get_yomi_candidates("AI", nbest=4)[1]
+candidate.reading             # エーアイ
+candidate.spans[0].surface    # AI
+candidate.spans[0].rule       # letter-by-letter
+candidate.to_dict()           # APIと同じJSON互換dict
+```
+
+`POST /yomi_candidates` は単一文字列に `{"candidates": [...]}`、文字列配列に
+`{"candidates": [[...], ...]}` を返す。`nbest` は1〜32。`GET /health` の
+`candidate_contract_version: 1` と `capabilities.reading_nbest: true` で判別できる。
 
 ## `/tokenize` の token 契約（version 2）
 

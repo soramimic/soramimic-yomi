@@ -6,8 +6,8 @@ pyopenjtalk は未知の英単語をスペル読み(NICE→エヌアイシーイ
 変換優先順位:
   1. 自前の例外辞書(data/english_overrides.csv) — 頻出語で機械変換の結果が
      明らかにおかしい場合の上書き
-  2. CMUdict(data/cmudict.dict)に収録されている語は、その発音(ARPAbet音素列、
-     異形("(2)"等)を除いた主発音のみ)を e2k.P2K でカナ化
+  2. CMUdict(data/cmudict.dict)に収録されている語は、その主発音
+     (ARPAbet音素列)を e2k.P2K でカナ化。異形("(2)"等)もN-best用に保持
   3. CMUdict未収録語は e2k.C2K で綴りから直接カナ化(小文字入力)
 
 CMUdict は Carnegie Mellon University が配布する発音辞書で、データ本体は
@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import csv
 import re
-from functools import lru_cache
+import unicodedata
+from functools import cache, lru_cache
 from pathlib import Path
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
@@ -50,14 +51,14 @@ def _overrides() -> dict[str, str]:
 
 
 @lru_cache(maxsize=1)
-def _cmudict() -> dict[str, tuple[str, ...]]:
-    """cmudict.dict(cmusphinx/cmudict 形式)を自前パースする。
+def _cmudict_pronunciations() -> dict[str, tuple[tuple[str, ...], ...]]:
+    """cmudict.dictを全発音つきで自前パースする。
 
     フォーマット例: ``hello HH AH0 L OW1`` (単語 + ARPAbet音素列、ストレス数字付き)。
-    ``;;;`` で始まる行はコメント。``word(2)`` のような異形(第2発音以降)は
-    採用せず、無印の主発音のみを保持する。行末の ``# ...`` コメントも無視する。
+    ``;;;`` で始まる行はコメント。``word(2)`` のような異形も同じ語の追加発音
+    として入力順に保持する。行末の ``# ...`` コメントは無視する。
     """
-    d: dict[str, tuple[str, ...]] = {}
+    collected: dict[str, list[tuple[str, ...]]] = {}
     with _CMUDICT_PATH.open(encoding="utf-8") as f:
         for line in f:
             line = line.rstrip("\n")
@@ -67,14 +68,30 @@ def _cmudict() -> dict[str, tuple[str, ...]]:
             if not line:
                 continue
             parts = line.split()
-            word, phonemes = parts[0], parts[1:]
+            word, phonemes = parts[0], tuple(parts[1:])
             if not phonemes:
                 continue
-            if _ALT_PRON_RE.match(word):
-                # 異形発音("aalborg(2)"等)は主発音を優先するためスキップ
-                continue
-            d[word.lower()] = tuple(phonemes)
-    return d
+            match = _ALT_PRON_RE.match(word)
+            base = (match.group(1) if match else word).lower()
+            variants = collected.setdefault(base, [])
+            if phonemes not in variants:
+                variants.append(phonemes)
+    return {word: tuple(variants) for word, variants in collected.items()}
+
+
+@lru_cache(maxsize=1)
+def _cmudict() -> dict[str, tuple[str, ...]]:
+    """Return the primary pronunciation mapping kept for compatibility."""
+    return {
+        word: pronunciations[0]
+        for word, pronunciations in _cmudict_pronunciations().items()
+    }
+
+
+def _pronunciations(word: str) -> tuple[tuple[str, ...], ...]:
+    """Return all CMUdict pronunciations for a normalized English word."""
+    lower = unicodedata.normalize("NFKC", word).lower().replace("\u2019", "'")
+    return _cmudict_pronunciations().get(lower, ())
 
 
 @lru_cache(maxsize=1)
@@ -91,7 +108,7 @@ def _c2k():
     return C2K()
 
 
-@lru_cache(maxsize=None)
+@cache
 def _convert_word(word: str) -> str:
     """英単語1語をカナに変換する(語単位でキャッシュ)。"""
     # CMUdict uses ASCII apostrophes.  Treat typographic apostrophes as the
