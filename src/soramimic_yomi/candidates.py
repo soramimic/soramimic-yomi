@@ -190,7 +190,10 @@ def _fuse_boundaries(words: list[list[str]]) -> tuple[list[list[str]], bool]:
 
 
 def _phones_to_kana(words: list[list[str]]) -> str:
-    return english._p2k()([phone for word in words for phone in word])
+    return english._phonemes_to_kana(
+        [phone for word in words for phone in word],
+        connected=True,
+    )
 
 
 def _english_phrase_readings(surface: str) -> list[tuple[str, str, float]]:
@@ -213,9 +216,19 @@ def _english_phrase_readings(surface: str) -> list[tuple[str, str, float]]:
             and _base_phone(right[0]) in {*_VOWEL_PHONES, "W", "Y"}
         )
 
-    # P2K is word-oriented, so only ask it to resyllabify a short window when
-    # every boundary has a concrete consonant-to-vowel/glide connection.
-    if all(linkable(left, right) for left, right in pairwise(primary)):
+    def fusible(left: list[str], right: list[str]) -> bool:
+        return bool(
+            left
+            and right
+            and (_base_phone(left[-1]), _base_phone(right[0]))
+            in _BOUNDARY_FUSIONS
+        )
+
+    # Join only concrete consonant-to-vowel/glide boundaries.  Boundaries with
+    # an explicit assimilation rule are emitted below with their own provenance.
+    if all(linkable(left, right) for left, right in pairwise(primary)) and not any(
+        fusible(left, right) for left, right in pairwise(primary)
+    ):
         generated.append((_phones_to_kana(primary), "connected", 0.25))
 
     weak = [phones.copy() for phones in primary]
@@ -319,7 +332,7 @@ def _candidate_edits(text: str) -> list[_Edit]:
                     text,
                     match.start(),
                     match.end(),
-                    english._p2k()(list(phones)),
+                    english._phonemes_to_kana(phones),
                     source="english",
                     rule=f"cmudict-pronunciation-{variant_index}",
                     cost=0.4 + 0.05 * (variant_index - 2),
@@ -328,8 +341,8 @@ def _candidate_edits(text: str) -> list[_Edit]:
 
     for phrase_match in _ENGLISH_PHRASE.finditer(text):
         words = list(_LATIN_WORD.finditer(phrase_match.group()))
-        # e2k.P2K is a word-oriented converter.  Short windows capture useful
-        # cross-word realizations without letting it re-syllabify a long line.
+        # Short windows capture useful cross-word realizations without applying
+        # connected-speech rules to a whole line.
         window_sizes = (2, 3)
         for size in window_sizes:
             for first in range(len(words) - size + 1):

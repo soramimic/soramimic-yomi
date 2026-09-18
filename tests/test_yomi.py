@@ -30,8 +30,8 @@ def test_english_rule_override_path():
     assert english_rules._convert_word("worried") == "ワーリド"
 
 
-def test_english_rule_cmudict_p2k_path():
-    # (b) CMUdict収録語は発音(ARPAbet)ベースのe2k.P2Kで変換される
+def test_english_rule_cmudict_arpakana_path():
+    # (b) CMUdict収録語は発音(ARPAbet)を決定的規則で変換する
     assert "nice" in english_rules._cmudict()
     assert english_rules._convert_word("nice") == "ナイス"
 
@@ -102,7 +102,7 @@ def test_apostrophe_contraction_is_one_token_for_both_forms():
     assert [t["surface_form"] for t in straight] == ["don't", " ", "stop"]
     assert [t["surface_form"] for t in curly] == ["don’t", " ", "stop"]
     assert straight[0]["pronunciation"] == curly[0]["pronunciation"] == "ドーント"
-    assert "".join(t["pronunciation"] for t in straight) == "ドーントストップ"
+    assert "".join(t["pronunciation"] for t in straight) == "ドーントスタップ"
     assert soramimic_yomi.get_yomi("don't stop") == soramimic_yomi.get_yomi(
         "don’t stop"
     )

@@ -7,7 +7,8 @@ pyopenjtalk は未知の英単語をスペル読み(NICE→エヌアイシーイ
   1. 自前の例外辞書(data/english_overrides.csv) — 頻出語で機械変換の結果が
      明らかにおかしい場合の上書き
   2. CMUdict(data/cmudict.dict)に収録されている語は、その主発音
-     (ARPAbet音素列)を e2k.P2K でカナ化。異形("(2)"等)もN-best用に保持
+     (ARPAbet音素列)を arpakana の明示規則でカナ化。異形
+     ("(2)"等)もN-best用に保持
   3. CMUdict未収録語は e2k.C2K で綴りから直接カナ化(小文字入力)
 
 CMUdict は Carnegie Mellon University が配布する発音辞書で、データ本体は
@@ -16,8 +17,8 @@ cmudict.dict をそのまま同梱し、自前のパーサで読む(PyPIの `cmu
 ラッパー自体が GPL-3.0-or-later のため使用しない)。ライセンス全文は
 data/cmudict.LICENSE を参照。
 
-e2k(コードは Unlicense)の P2K/C2K モデルは遅延ロード(初回呼び出し時の1回のみ)し、
-変換結果は単語単位で lru_cache により再利用する。
+e2k(コードは Unlicense)は CMUdict 未収録語の C2K のみを遅延ロード
+(初回呼び出し時の1回のみ)し、変換結果は単語単位で cache により再利用する。
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ import re
 import unicodedata
 from functools import cache, lru_cache
 from pathlib import Path
+
+from arpakana import arpabet_to_kana
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _CMUDICT_PATH = _DATA_DIR / "cmudict.dict"
@@ -95,17 +98,20 @@ def _pronunciations(word: str) -> tuple[tuple[str, ...], ...]:
 
 
 @lru_cache(maxsize=1)
-def _p2k():
-    from e2k import P2K
-
-    return P2K()
-
-
-@lru_cache(maxsize=1)
 def _c2k():
     from e2k import C2K
 
     return C2K()
+
+
+def _phonemes_to_kana(
+    phonemes: tuple[str, ...] | list[str], *, connected: bool = False
+) -> str:
+    """Convert CMUdict phonemes without a learned phoneme-to-kana model."""
+    return arpabet_to_kana(
+        phonemes,
+        geminate_intervocalic=not connected,
+    )
 
 
 @cache
@@ -121,7 +127,7 @@ def _convert_word(word: str) -> str:
 
     phonemes = _cmudict().get(lower)
     if phonemes is not None:
-        return _p2k()(list(phonemes))
+        return _phonemes_to_kana(phonemes)
 
     return _c2k()(lower)
 
