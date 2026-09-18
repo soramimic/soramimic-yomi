@@ -5,7 +5,7 @@
 空耳用途の工夫を重ねる:
 
 - **ユーザー辞書**(`dic/user.csv`) — 素の辞書が知らない語を補正(例: 夕焼小焼→ユウヤケコヤケ)
-- **正規化ルール**(`rules/`) — 英単語→カナ(CMUdict+[e2k](https://github.com/Patchethium/e2k)。素だとスペル読みになる)など、合成可能な前処理
+- **正規化ルール**(`rules/`) — 英単語→カナ(CMUdict+[arpakana](https://github.com/jiroshimaya/arpakana)、未収録語のみ[e2k](https://github.com/Patchethium/e2k) C2K)など、合成可能な前処理
 - 数字・日付の読み下し(1羽→イチワ、2020年5月→ニセンニジューネンゴガツ)は pyopenjtalk-plus 自体が強い
 
 ## 3つの使い方
@@ -47,14 +47,15 @@ uv run uvicorn api.main:app --port 8080
 `'` / curly apostrophe `’`）を、以下の優先順位でカナに変換する:
 
 1. 自前の例外辞書 `data/english_overrides.csv` — 機械変換の結果が明らかにおかしい頻出語の上書き
-2. [CMUdict](https://github.com/cmusphinx/cmudict) に収録されている語は、その主発音(ARPAbet音素列)を [e2k](https://github.com/Patchethium/e2k) の `P2K` でカナ化。異形発音もN-best用に保持
+2. [CMUdict](https://github.com/cmusphinx/cmudict) に収録されている語は、その主発音(ARPAbet音素列)を [arpakana](https://github.com/jiroshimaya/arpakana) の明示規則で決定的にカナ化。異形発音もN-best用に保持
 3. CMUdict未収録語は e2k の `C2K` で綴りから直接カナ化
 
 CMUdict は Carnegie Mellon University が配布する発音辞書で、データ本体(`data/cmudict.dict`)は
 BSD類似の寛容ライセンス(著作権表示の保持のみ要求。全文: `data/cmudict.LICENSE`)。
 `cmusphinx/cmudict` の `cmudict.dict` をそのまま同梱し、自前のパーサで読んでいる。
 **PyPIの `cmudict` パッケージ(GPL-3.0-or-later のラッパー)は使用していない。**
-e2k はコード自体が Unlicense。
+arpakana は MIT License。e2k はコード自体が Unlicenseで、CMUdict未収録語の
+`C2K` フォールバックにのみ使用する。
 
 ## 読み候補（N-best）
 

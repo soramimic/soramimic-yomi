@@ -66,7 +66,7 @@ def test_acronym_gains_letter_name_reading():
 
 def test_lowercase_word_can_be_spelled_but_keeps_lexical_reading_first():
     readings = _readings("reason", nbest=8)
-    assert readings[0] == "リーズン"
+    assert readings[0] == "リーザン"
     assert "アールイーエーエスオーエヌ" in readings
 
 
@@ -84,8 +84,14 @@ def test_connected_english_phrase_is_generated_from_phonemes():
 def test_connected_english_includes_cross_word_fusion():
     candidates = soramimic_yomi.get_yomi_candidates("did you", nbest=12)
     assert candidates[0].reading == "ディドユー"
-    fused = next(candidate for candidate in candidates if candidate.reading == "デジュ")
+    fused = next(candidate for candidate in candidates if candidate.reading == "ディジュー")
     assert "boundary-fusion" in fused.spans[0].rule
+
+
+def test_connected_english_never_drops_an_entire_function_word():
+    readings = _readings("rock and", nbest=12)
+    assert "ラカンド" in readings
+    assert "ラカン" in readings
 
 
 def test_disjoint_variants_can_be_combined_without_cartesian_explosion():
