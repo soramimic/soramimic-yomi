@@ -100,6 +100,11 @@ _VOWEL_PHONES = {
     "UH",
     "UW",
 }
+_DIPHTHONG_TAILS = {"AW": "ウ", "AY": "イ", "EY": "イ", "OW": "ー", "OY": "イ"}
+_CODA_CONSONANTS = {
+    "B", "CH", "D", "DH", "F", "G", "JH", "K", "L", "M", "N", "NG",
+    "P", "R", "S", "SH", "T", "TH", "V", "Z", "ZH",
+}
 
 
 @dataclass(frozen=True)
@@ -189,11 +194,49 @@ def _fuse_boundaries(words: list[list[str]]) -> tuple[list[list[str]], bool]:
     return fused, changed
 
 
-def _phones_to_kana(words: list[list[str]]) -> str:
-    return english._phonemes_to_kana(
-        [phone for word in words for phone in word],
-        connected=True,
+def _phones_to_kana(words: list[list[str]], *, compact: bool = False) -> str:
+    phones = [phone for word in words for phone in word]
+    if not compact:
+        return english._phonemes_to_kana(phones, connected=True)
+    # Cut only after a known diphthong nucleus: consonants before it still
+    # become its onset, including consonants linked from the previous word.
+    parts: list[str] = []
+    start = 0
+    for index, phone in enumerate(phones):
+        tail = _DIPHTHONG_TAILS.get(_base_phone(phone))
+        if tail is not None:
+            kana = english._phonemes_to_kana(phones[start:index + 1], connected=True)
+            parts.append(kana.removesuffix(tail))
+            start = index + 1
+    parts.append(english._phonemes_to_kana(phones[start:], connected=True))
+    return "".join(parts)
+
+
+def _compact_phrase_readings(words: list[list[str]]) -> list[tuple[str, str, float]]:
+    """Optional compact realizations; preserve every word's vowel nucleus."""
+    has_diphthong = any(
+        _base_phone(phone) in _DIPHTHONG_TAILS for word in words for phone in word
     )
+    final = words[-1]
+    # A single final coda only, never a cluster or a word's sole phoneme.
+    can_drop = (len(final) >= 2 and _base_phone(final[-1]) in _CODA_CONSONANTS
+                and _base_phone(final[-2]) in _VOWEL_PHONES)
+    reduced = [word.copy() for word in words]
+    if can_drop:
+        reduced[-1].pop()
+    generated = []
+    # Offer the complete compact profile early enough to survive a small
+    # N-best, alongside the individual operations and unchanged connection.
+    if has_diphthong and can_drop:
+        generated.append((_phones_to_kana(reduced, compact=True),
+                          "connected+compact-diphthongs+final-coda-elision", 0.4))
+    if has_diphthong:
+        generated.append((_phones_to_kana(words, compact=True),
+                          "connected+compact-diphthongs", 0.5))
+    if can_drop:
+        generated.append((_phones_to_kana(reduced),
+                          "connected+final-coda-elision", 0.5))
+    return generated
 
 
 def _english_phrase_readings(surface: str) -> list[tuple[str, str, float]]:
@@ -230,6 +273,7 @@ def _english_phrase_readings(surface: str) -> list[tuple[str, str, float]]:
         fusible(left, right) for left, right in pairwise(primary)
     ):
         generated.append((_phones_to_kana(primary), "connected", 0.25))
+        generated.extend(_compact_phrase_readings(primary))
 
     weak = [phones.copy() for phones in primary]
     weak_changed = False

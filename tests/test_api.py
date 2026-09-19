@@ -94,6 +94,14 @@ def test_yomi_candidates_array_preserves_per_input_shape():
     assert any(item["reading"] == "エーアイ" for item in candidates[1])
 
 
+def test_yomi_candidates_includes_compact_english_with_default_limit():
+    response = client.post("/yomi_candidates", json={"text": "shout it out"})
+    assert response.status_code == 200
+    readings = [candidate["reading"] for candidate in response.json()["candidates"]]
+    assert readings[0] == "シャウトイットアウト"
+    assert "シャティタ" in readings
+
+
 def test_yomi_candidates_rejects_out_of_range_nbest():
     assert (
         client.post("/yomi_candidates", json={"text": "AI", "nbest": 0}).status_code
