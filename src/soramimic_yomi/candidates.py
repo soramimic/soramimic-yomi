@@ -425,7 +425,67 @@ def _render(text: str, edits: tuple[_Edit, ...]) -> str:
     return "".join(parts)
 
 
-def _states(edits: list[_Edit], *, beam_size: int) -> list[tuple[_Edit, ...]]:
+def _phrase_key(edit: _Edit) -> tuple[str, str, str]:
+    return (
+        " ".join(_nfkc_ascii(edit.span.surface).lower().replace("\u2019", "'").split()),
+        edit.span.rule,
+        edit.span.reading,
+    )
+
+
+def _state_cost(
+    state: tuple[_Edit, ...], repeat_counts: dict[tuple[str, str, str], int]
+) -> tuple[float, int]:
+    # Repeating the same realization is a coherent phrase-level alternative,
+    # not an independent unlikely edit at every occurrence. Discount its prior
+    # so partial combinations cannot crowd it out of a small N-best. This is a
+    # generation prior only; acoustic selection remains the caller's decision.
+    groups: dict[tuple[str, str, str], list[float]] = {}
+    cost = 0.0
+    for edit in state:
+        if edit.span.source == "english-phrase":
+            groups.setdefault(_phrase_key(edit), []).append(edit.cost)
+        else:
+            cost += edit.cost
+    consistent = 0
+    for key, values in groups.items():
+        count = len(values)
+        if count > 1 and count == repeat_counts.get(key):
+            cost += sum(values) / count ** 2
+            consistent += count
+        else:
+            cost += sum(values)
+    return cost, consistent
+
+
+def _state_order(
+    state: tuple[_Edit, ...], repeat_counts: dict[tuple[str, str, str], int]
+) -> tuple:
+    cost, consistent = _state_cost(state, repeat_counts)
+    return (
+        round(cost, 8),
+        -consistent,
+        len(state),
+        tuple((item.span.start, item.span.end, item.span.rule) for item in state),
+    )
+
+
+def _repeated_phrase_states(edits: list[_Edit]) -> list[tuple[_Edit, ...]]:
+    groups: dict[tuple[str, str, str], list[_Edit]] = {}
+    for edit in sorted(edits, key=lambda item: (item.span.start, item.span.end)):
+        if edit.span.source != "english-phrase":
+            continue
+        group = groups.setdefault(_phrase_key(edit), [])
+        if not group or not _overlaps(group[-1].span, edit.span):
+            group.append(edit)
+    return [tuple(group) for group in groups.values() if len(group) > 1]
+
+
+def _states(
+    edits: list[_Edit], *, beam_size: int,
+    repeated: list[tuple[_Edit, ...]],
+    repeat_counts: dict[tuple[str, str, str], int],
+) -> list[tuple[_Edit, ...]]:
     states: list[tuple[_Edit, ...]] = [()]
     for edit in edits:
         additions = [
@@ -434,17 +494,12 @@ def _states(edits: list[_Edit], *, beam_size: int) -> list[tuple[_Edit, ...]]:
             if all(not _overlaps(existing.span, edit.span) for existing in state)
         ]
         states.extend(additions)
-        states.sort(
-            key=lambda state: (
-                round(sum(item.cost for item in state), 8),
-                len(state),
-                tuple(
-                    (item.span.start, item.span.end, item.span.rule) for item in state
-                ),
-            )
-        )
+        states.sort(key=lambda state: _state_order(state, repeat_counts))
         states = states[:beam_size]
-    return states
+    # Seed complete repeated realizations explicitly: a left-to-right beam can
+    # discard their early edits before reaching the later repetitions.
+    states = list(dict.fromkeys([*states, *repeated]))
+    return sorted(states, key=lambda state: _state_order(state, repeat_counts))[:beam_size]
 
 
 def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
@@ -463,7 +518,10 @@ def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
         return candidates
 
     edits = _candidate_edits(text)
-    states = _states(edits, beam_size=max(64, nbest * 12))
+    repeated = _repeated_phrase_states(edits)
+    repeat_counts = {_phrase_key(group[0]): len(group) for group in repeated}
+    states = _states(edits, beam_size=max(64, nbest * 12),
+                     repeated=repeated, repeat_counts=repeat_counts)
     seen = {canonical}
     for state in states:
         if not state:
@@ -477,7 +535,7 @@ def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
         candidate = ReadingCandidate(
             reading=reading,
             rank=0,
-            cost=round(sum(edit.cost for edit in state), 6),
+            cost=round(_state_cost(state, repeat_counts)[0], 6),
             sources=sources,
             spans=tuple(edit.span for edit in ordered_state),
         )
