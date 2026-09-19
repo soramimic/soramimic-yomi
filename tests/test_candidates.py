@@ -88,6 +88,58 @@ def test_connected_english_includes_cross_word_fusion():
     assert "boundary-fusion" in fused.spans[0].rule
 
 
+@pytest.mark.parametrize("text", ["shout it out", "ＳＨＯＵＴ　ＩＴ　ＯＵＴ"])
+def test_short_connected_reading_survives_default_nbest(text):
+    candidates = soramimic_yomi.get_yomi_candidates(text)
+    assert candidates[0].reading == soramimic_yomi.get_yomi(text)
+    compact = next(candidate for candidate in candidates if candidate.reading == "シャティタ")
+    assert compact.sources == ("english-phrase",)
+    assert compact.spans[0].surface == text
+    assert compact.spans[0].start == 0
+    assert compact.spans[0].end == len(text)
+    assert compact.spans[0].rule == "connected+compact-diphthongs+final-coda-elision"
+
+
+@pytest.mark.parametrize("text,compact", [
+    ("take it", "テキ"),
+    ("ride it", "ラディ"),
+    ("hold it", "ホルディ"),
+    ("join us", "ジョナ"),
+    ("pick it up", "ピキタ"),
+])
+def test_compaction_generalizes_to_other_words(text, compact):
+    assert compact in _readings(text, nbest=8)
+
+
+def test_individual_reductions_remain_available():
+    readings = _readings("shout it out", nbest=32)
+    assert {"シャウティタウト", "シャティタト", "シャウティタウ", "シャティタ"} <= set(readings)
+
+
+def test_compact_rules_preserve_clusters_missing_phones_and_japanese(monkeypatch):
+    from soramimic_yomi.candidates import _english_phrase_readings
+    from soramimic_yomi.rules import english
+
+    # Final /nt/ is not a single coda. No word or vowel nucleus is deleted.
+    variants = _english_phrase_readings("shout it aunt")
+    assert variants
+    assert not any("coda-elision" in rule for _, rule, _ in variants)
+    assert _readings("シャウトイットアウト") == ["シャウトイットアウト"]
+    assert _readings("海は広いな") == [soramimic_yomi.get_yomi("海は広いな")]
+    monkeypatch.setattr(english, "_pronunciations", lambda word: ())
+    assert _english_phrase_readings("shout it out") == []
+
+
+def test_compact_candidates_keep_surrounding_text_and_bounded_deterministic_ranks():
+    text = "海 shout it out 空"
+    candidates = soramimic_yomi.get_yomi_candidates(text)
+    assert "ウミシャティタソラ" in [candidate.reading for candidate in candidates]
+    assert candidates == soramimic_yomi.get_yomi_candidates(text)
+    assert len(candidates) <= 8
+    assert len({candidate.reading for candidate in candidates}) == len(candidates)
+    assert [candidate.rank for candidate in candidates] == list(range(len(candidates)))
+
+
 def test_connected_english_never_drops_an_entire_function_word():
     readings = _readings("rock and", nbest=12)
     assert "ラカンド" in readings
