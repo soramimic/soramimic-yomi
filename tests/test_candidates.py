@@ -140,6 +140,47 @@ def test_compact_candidates_keep_surrounding_text_and_bounded_deterministic_rank
     assert [candidate.rank for candidate in candidates] == list(range(len(candidates)))
 
 
+@pytest.mark.parametrize("text,reading", [
+    ("Shout it out! Shout it out!", "シャティタシャティタ"),
+    ("Shout it out! shout it out! SHOUT IT OUT!", "シャティタシャティタシャティタ"),
+    ("Ｓｈｏｕｔ　ｉｔ　ｏｕｔ! shout  it\tout!", "シャティタシャティタ"),
+    ("pick it up, PICK IT UP", "ピキタピキタ"),
+    ("take it! take it!", "テキテキ"),
+    ("send it! send it!", "センディセンディ"),
+    ("Shout it out! 海でShout it out!", "シャティタウミデシャティタ"),
+])
+def test_consistent_repeated_readings_survive_default_nbest(text, reading):
+    candidates = soramimic_yomi.get_yomi_candidates(text)
+    assert candidates[0].reading == soramimic_yomi.get_yomi(text)
+    compact = next(candidate for candidate in candidates if candidate.reading == reading)
+    assert len(compact.spans) >= 2
+    assert all(span.surface == text[span.start:span.end] for span in compact.spans)
+    assert all(left.end <= right.start for left, right in zip(compact.spans, compact.spans[1:]))
+    assert compact.sources == ("english-phrase",)
+    assert candidates == soramimic_yomi.get_yomi_candidates(text)
+    assert [candidate.cost for candidate in candidates] == sorted(candidate.cost for candidate in candidates)
+
+
+def test_repeated_readings_keep_partial_realizations_and_candidate_bounds():
+    text = "Shout it out! Shout it out!"
+    candidates = soramimic_yomi.get_yomi_candidates(text, nbest=32)
+    assert "シャティタシャウトイットアウト" in [candidate.reading for candidate in candidates]
+    assert "シャウトイットアウトシャティタ" in [candidate.reading for candidate in candidates]
+    for nbest in (1, 8, 32):
+        candidates = soramimic_yomi.get_yomi_candidates("Shout it out! " * 5, nbest=nbest)
+        assert len(candidates) <= nbest
+        assert len({candidate.reading for candidate in candidates}) == len(candidates)
+        assert [candidate.rank for candidate in candidates] == list(range(len(candidates)))
+        if nbest > 1:
+            assert "シャティタ" * 5 in [candidate.reading for candidate in candidates]
+
+
+def test_repeated_overlapping_windows_never_duplicate_surface_spans():
+    candidates = soramimic_yomi.get_yomi_candidates("at at at at", nbest=32)
+    for candidate in candidates:
+        assert all(left.end <= right.start for left, right in zip(candidate.spans, candidate.spans[1:]))
+
+
 def test_connected_english_never_drops_an_entire_function_word():
     readings = _readings("rock and", nbest=12)
     assert "ラカンド" in readings
