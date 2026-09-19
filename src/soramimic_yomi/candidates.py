@@ -124,7 +124,7 @@ class ReadingSpan:
 
 @dataclass(frozen=True)
 class ReadingCandidate:
-    """One complete reading, ordered by a generator-side linguistic prior."""
+    """One complete reading, in deterministic generation order."""
 
     reading: str
     rank: int
@@ -229,13 +229,13 @@ def _compact_phrase_readings(words: list[list[str]]) -> list[tuple[str, str, flo
     # N-best, alongside the individual operations and unchanged connection.
     if has_diphthong and can_drop:
         generated.append((_phones_to_kana(reduced, compact=True),
-                          "connected+compact-diphthongs+final-coda-elision", 0.4))
+                          "connected+compact-diphthongs+final-coda-elision", 0.0))
     if has_diphthong:
         generated.append((_phones_to_kana(words, compact=True),
-                          "connected+compact-diphthongs", 0.5))
+                          "connected+compact-diphthongs", 0.0))
     if can_drop:
         generated.append((_phones_to_kana(reduced),
-                          "connected+final-coda-elision", 0.5))
+                          "connected+final-coda-elision", 0.0))
     return generated
 
 
@@ -272,7 +272,7 @@ def _english_phrase_readings(surface: str) -> list[tuple[str, str, float]]:
     if all(linkable(left, right) for left, right in pairwise(primary)) and not any(
         fusible(left, right) for left, right in pairwise(primary)
     ):
-        generated.append((_phones_to_kana(primary), "connected", 0.25))
+        generated.append((_phones_to_kana(primary), "connected", 0.0))
         generated.extend(_compact_phrase_readings(primary))
 
     weak = [phones.copy() for phones in primary]
@@ -283,16 +283,16 @@ def _english_phrase_readings(surface: str) -> list[tuple[str, str, float]]:
             weak[index] = list(replacement)
             weak_changed = True
     if weak_changed and len(words) == 2:
-        generated.append((_phones_to_kana(weak), "weak-forms", 0.4))
+        generated.append((_phones_to_kana(weak), "weak-forms", 0.0))
 
     fused, fused_changed = _fuse_boundaries(primary)
     if fused_changed and len(words) == 2:
-        generated.append((_phones_to_kana(fused), "boundary-fusion", 0.35))
+        generated.append((_phones_to_kana(fused), "boundary-fusion", 0.0))
     if weak_changed and len(words) == 2:
         weak_fused, weak_fused_changed = _fuse_boundaries(weak)
         if weak_fused_changed:
             generated.append(
-                (_phones_to_kana(weak_fused), "weak-forms+boundary-fusion", 0.5)
+                (_phones_to_kana(weak_fused), "weak-forms+boundary-fusion", 0.0)
             )
 
     unique: list[tuple[str, str, float]] = []
@@ -425,67 +425,38 @@ def _render(text: str, edits: tuple[_Edit, ...]) -> str:
     return "".join(parts)
 
 
-def _phrase_key(edit: _Edit) -> tuple[str, str, str]:
+def _state_order(state: tuple[_Edit, ...]) -> tuple:
     return (
-        " ".join(_nfkc_ascii(edit.span.surface).lower().replace("\u2019", "'").split()),
-        edit.span.rule,
-        edit.span.reading,
-    )
-
-
-def _state_cost(
-    state: tuple[_Edit, ...], repeat_counts: dict[tuple[str, str, str], int]
-) -> tuple[float, int]:
-    # Repeating the same realization is a coherent phrase-level alternative,
-    # not an independent unlikely edit at every occurrence. Discount its prior
-    # so partial combinations cannot crowd it out of a small N-best. This is a
-    # generation prior only; acoustic selection remains the caller's decision.
-    groups: dict[tuple[str, str, str], list[float]] = {}
-    cost = 0.0
-    for edit in state:
-        if edit.span.source == "english-phrase":
-            groups.setdefault(_phrase_key(edit), []).append(edit.cost)
-        else:
-            cost += edit.cost
-    consistent = 0
-    for key, values in groups.items():
-        count = len(values)
-        if count > 1 and count == repeat_counts.get(key):
-            cost += sum(values) / count ** 2
-            consistent += count
-        else:
-            cost += sum(values)
-    return cost, consistent
-
-
-def _state_order(
-    state: tuple[_Edit, ...], repeat_counts: dict[tuple[str, str, str], int]
-) -> tuple:
-    cost, consistent = _state_cost(state, repeat_counts)
-    return (
-        round(cost, 8),
-        -consistent,
+        round(sum(edit.cost for edit in state), 8),
         len(state),
         tuple((item.span.start, item.span.end, item.span.rule) for item in state),
     )
 
 
-def _repeated_phrase_states(edits: list[_Edit]) -> list[tuple[_Edit, ...]]:
-    groups: dict[tuple[str, str, str], list[_Edit]] = {}
-    for edit in sorted(edits, key=lambda item: (item.span.start, item.span.end)):
-        if edit.span.source != "english-phrase":
-            continue
-        group = groups.setdefault(_phrase_key(edit), [])
-        if not group or not _overlaps(group[-1].span, edit.span):
-            group.append(edit)
-    return [tuple(group) for group in groups.values() if len(group) > 1]
+def _phrase_profile_states(edits: list[_Edit]) -> list[tuple[_Edit, ...]]:
+    # Reserve complete spoken realizations before the bounded beam's partial
+    # combinations. Profiles apply across different phrases as well as repeats;
+    # their order is a diversity policy, not a pronunciation likelihood.
+    phrases = [edit for edit in edits if edit.span.source == "english-phrase"]
+    profiles = list(dict.fromkeys(frozenset(edit.span.rule.split("+")) for edit in phrases))
+    if profiles:
+        profiles.append(frozenset().union(*profiles))
+    states = []
+    for profile in dict.fromkeys(profiles):
+        eligible = [edit for edit in phrases if set(edit.span.rule.split("+")) <= profile]
+        eligible.sort(key=lambda edit: (
+            edit.span.start, -edit.span.end, -len(edit.span.rule.split("+")),
+        ))
+        state: list[_Edit] = []
+        for edit in eligible:
+            if not state or state[-1].span.end <= edit.span.start:
+                state.append(edit)
+        if state:
+            states.append(tuple(state))
+    return list(dict.fromkeys(states))
 
 
-def _states(
-    edits: list[_Edit], *, beam_size: int,
-    repeated: list[tuple[_Edit, ...]],
-    repeat_counts: dict[tuple[str, str, str], int],
-) -> list[tuple[_Edit, ...]]:
+def _states(edits: list[_Edit], *, beam_size: int) -> list[tuple[_Edit, ...]]:
     states: list[tuple[_Edit, ...]] = [()]
     for edit in edits:
         additions = [
@@ -494,20 +465,19 @@ def _states(
             if all(not _overlaps(existing.span, edit.span) for existing in state)
         ]
         states.extend(additions)
-        states.sort(key=lambda state: _state_order(state, repeat_counts))
+        states.sort(key=_state_order)
         states = states[:beam_size]
-    # Seed complete repeated realizations explicitly: a left-to-right beam can
-    # discard their early edits before reaching the later repetitions.
-    states = list(dict.fromkeys([*states, *repeated]))
-    return sorted(states, key=lambda state: _state_order(state, repeat_counts))[:beam_size]
+    return list(dict.fromkeys([*_phrase_profile_states(edits), *states]))
 
 
 def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
-    """Return distinct complete readings ordered by a linguistic prior.
+    """Return distinct complete readings in deterministic generation order.
 
     The first result is always exactly :func:`get_yomi`.  Later candidates may
     contain digit-name, letter-name, CMUdict alternative, or connected-English
-    realizations.  Acoustic evidence is intentionally left to callers.
+    realizations. Spoken English operations have zero cost; their generation
+    order reserves diverse complete profiles, without estimating likelihood.
+    Acoustic evidence is intentionally left to callers.
     """
     if not 1 <= nbest <= MAX_NBEST:
         raise ValueError(f"nbest must be between 1 and {MAX_NBEST}")
@@ -518,10 +488,7 @@ def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
         return candidates
 
     edits = _candidate_edits(text)
-    repeated = _repeated_phrase_states(edits)
-    repeat_counts = {_phrase_key(group[0]): len(group) for group in repeated}
-    states = _states(edits, beam_size=max(64, nbest * 12),
-                     repeated=repeated, repeat_counts=repeat_counts)
+    states = _states(edits, beam_size=max(64, nbest * 12))
     seen = {canonical}
     for state in states:
         if not state:
@@ -535,7 +502,7 @@ def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
         candidate = ReadingCandidate(
             reading=reading,
             rank=0,
-            cost=round(_state_cost(state, repeat_counts)[0], 6),
+            cost=round(sum(edit.cost for edit in state), 6),
             sources=sources,
             spans=tuple(edit.span for edit in ordered_state),
         )
