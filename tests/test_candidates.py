@@ -210,3 +210,15 @@ def test_candidates_are_distinct_ranked_and_serializable():
     assert payload["reading"] == candidates[-1].reading
     assert isinstance(payload["sources"], list)
     assert isinstance(payload["spans"], list)
+
+
+@pytest.mark.parametrize("text,connected,compact", [
+    ("shout it out", "シャウティタウト", "シャティタ"),
+    ("Shout it out! Shout it out!", "シャウティタウトシャウティタウト", "シャティタシャティタ"),
+    ("Shout it out! Pick it up!", "シャウティタウトピキタップ", "シャティタピキタ"),
+])
+def test_spoken_profiles_have_no_shortening_or_repetition_penalty(text, connected, compact):
+    candidates = soramimic_yomi.get_yomi_candidates(text)
+    by_reading = {candidate.reading: candidate for candidate in candidates}
+    assert by_reading[connected].cost == by_reading[compact].cost == candidates[0].cost == 0
+    assert all(candidate.cost == 0 for candidate in candidates if candidate.sources == ("english-phrase",))
