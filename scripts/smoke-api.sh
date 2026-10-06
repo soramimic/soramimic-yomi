@@ -2,7 +2,7 @@
 set -euo pipefail
 
 URL="${1:?Usage: smoke-api.sh URL}"
-health=$(curl -fsS --retry 12 --retry-delay 5 --retry-connrefused --max-time 120 "$URL/health")
+health=$(curl -fsS --retry 12 --retry-delay 5 --retry-all-errors --retry-max-time 120 --connect-timeout 5 --max-time 120 "$URL/health")
 test "$(jq -r .token_contract_version <<<"$health")" = "2"
 test "$(jq -r .capabilities.lossless_surface <<<"$health")" = "true"
 test "$(jq -r .capabilities.english_reading <<<"$health")" = "true"
