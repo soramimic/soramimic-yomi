@@ -10,20 +10,32 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "Dockerfile"
+      - "cloudbuild.yaml"
+      - "scripts/smoke-api.sh"
       - ".github/workflows/deploy.yaml"
   workflow_dispatch:
+    inputs:
+      validate_only:
+        description: Build and check the container without deploying
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: deploy
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROJECT: soramimi-501414
+      REGION: asia-northeast1
+      SERVICE: soramimi-yomi
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
@@ -31,30 +43,38 @@ jobs:
           workload_identity_provider: projects/781811236862/locations/global/workloadIdentityPools/github/providers/github-oidc
           service_account: soramimi-yomi-deployer@soramimi-501414.iam.gserviceaccount.com
       - uses: google-github-actions/setup-gcloud@v2
+      - name: build container
+        id: build
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/$SERVICE:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/source.tar.gz" HEAD
+          gcloud builds submit "$RUNNER_TEMP/source.tar.gz" \
+            --project "$PROJECT" --region "$REGION" --config cloudbuild.yaml \
+            --substitutions "_IMAGE=$IMAGE" --suppress-logs --format=json --quiet \
+            > "$RUNNER_TEMP/build.json"
+          jq -e '.status == "SUCCESS" and .options.workerRelease == "regular"' "$RUNNER_TEMP/build.json"
+          DIGEST=$(jq -er '.results.images[0].digest' "$RUNNER_TEMP/build.json")
+          echo "image=${IMAGE%:*}@$DIGEST" >> "$GITHUB_OUTPUT"
+      - name: check built container
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker pull "$IMAGE"
+          docker run -d --name yomi-smoke -p 127.0.0.1:8080:8080 "$IMAGE"
+          trap 'docker logs yomi-smoke; docker rm -f yomi-smoke' EXIT
+          bash scripts/smoke-api.sh http://127.0.0.1:8080
       - name: deploy to Cloud Run
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || !inputs.validate_only)
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
         run: |
-          gcloud run deploy soramimi-yomi --source . --project soramimi-501414 \
-            --region asia-northeast1 --allow-unauthenticated --memory 512Mi \
+          gcloud run deploy "$SERVICE" --image "$IMAGE" --project "$PROJECT" \
+            --region "$REGION" --allow-unauthenticated --memory 512Mi \
             --min-instances 0 --set-env-vars SORAMIMI_YOMI_CACHE=/tmp/soramimi-yomi --quiet
-      - name: smoke check
+      - name: check deployed API
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || !inputs.validate_only)
         run: |
-          URL=$(gcloud run services describe soramimi-yomi --project soramimi-501414 \
-            --region asia-northeast1 --format 'value(status.url)')
-          health=$(curl -sf --retry 3 --retry-delay 5 "$URL/health")
-          test "$(jq -r .token_contract_version <<<"$health")" = "2"
-          test "$(jq -r .capabilities.lossless_surface <<<"$health")" = "true"
-          test "$(jq -r .capabilities.english_reading <<<"$health")" = "true"
-          test "$(jq -r .candidate_contract_version <<<"$health")" = "1"
-          test "$(jq -r .capabilities.reading_nbest <<<"$health")" = "true"
-          yomi=$(curl -sf -X POST "$URL/yomi" -H 'Content-Type: application/json' \
-            -d '{"text":"夕焼小焼"}' | jq -r .yomi)
-          test "$yomi" = "ユウヤケコヤケ"
-          english=$(curl -sf -X POST "$URL/tokenize" -H 'Content-Type: application/json' \
-            -d '{"text":"I love you"}')
-          test "$(jq -r '[.tokens[].surface_form] | join("")' <<<"$english")" = "I love you"
-          test "$(jq -r '[.tokens[].pronunciation] | join("")' <<<"$english")" = "アイラヴユー"
-          candidates=$(curl -sf -X POST "$URL/yomi_candidates" -H 'Content-Type: application/json' \
-            -d '{"text":"AI 4443","nbest":8}')
-          test "$(jq -r '.candidates[0].rank' <<<"$candidates")" = "0"
-          test "$(jq -r '[.candidates[].reading] | index("エーアイヨンヨンヨンサン") != null' \
-            <<<"$candidates")" = "true"
+          URL=$(gcloud run services describe "$SERVICE" --project "$PROJECT" \
+            --region "$REGION" --format 'value(status.url)')
+          bash scripts/smoke-api.sh "$URL"
