@@ -43,6 +43,8 @@ jobs:
           workload_identity_provider: projects/781811236862/locations/global/workloadIdentityPools/github/providers/github-oidc
           service_account: soramimi-yomi-deployer@soramimi-501414.iam.gserviceaccount.com
       - uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: "587.0.0"
       - name: build container
         id: build
         run: |
@@ -53,6 +55,7 @@ jobs:
             --substitutions "_IMAGE=$IMAGE" --suppress-logs --format=json --quiet \
             > "$RUNNER_TEMP/build.json"
           jq -e '.status == "SUCCESS" and .options.workerRelease == "regular"' "$RUNNER_TEMP/build.json"
+          jq '{status, workerRelease: .options.workerRelease, resolvedWorkerRelease: .options.resolvedWorkerRelease}' "$RUNNER_TEMP/build.json"
           DIGEST=$(jq -er '.results.images[0].digest' "$RUNNER_TEMP/build.json")
           echo "image=${IMAGE%:*}@$DIGEST" >> "$GITHUB_OUTPUT"
       - name: check built container
