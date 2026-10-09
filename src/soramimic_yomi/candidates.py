@@ -14,6 +14,7 @@ from itertools import pairwise
 
 from .core import get_yomi
 from .rules import english
+from .symbols import get_symbol_spans
 
 MAX_NBEST = 32
 
@@ -323,6 +324,12 @@ def _edit(
 def _candidate_edits(text: str) -> list[_Edit]:
     edits: list[_Edit] = []
 
+    for span in get_symbol_spans(text):
+        for index, reading in enumerate(span.readings):
+            edits.append(_edit(text, span.start, span.end, reading,
+                               source="symbol", rule="silent" if not reading else
+                               f"conventional-name-{index}", cost=0.0))
+
     for match in _DIGITS.finditer(text):
         surface = match.group()
         if len(_nfkc_ascii(surface)) < 2:
@@ -467,14 +474,19 @@ def _states(edits: list[_Edit], *, beam_size: int) -> list[tuple[_Edit, ...]]:
         states.extend(additions)
         states.sort(key=_state_order)
         states = states[:beam_size]
-    return list(dict.fromkeys([*_phrase_profile_states(edits), *states]))
+    # Reserve a complete conventional-symbol realization alongside the
+    # canonical reading, even when a line has many symbol occurrences.
+    symbols = [edit for edit in edits if edit.span.source == "symbol" and
+               edit.span.rule == "conventional-name-1"]
+    symbol_states = [tuple(symbols)] if symbols else []
+    return list(dict.fromkeys([*symbol_states, *_phrase_profile_states(edits), *states]))
 
 
 def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
     """Return distinct complete readings in deterministic generation order.
 
     The first result is always exactly :func:`get_yomi`.  Later candidates may
-    contain digit-name, letter-name, CMUdict alternative, or connected-English
+    contain symbol-name, digit-name, letter-name, CMUdict alternative, or connected-English
     realizations. Spoken English operations have zero cost; their generation
     order reserves diverse complete profiles, without estimating likelihood.
     Acoustic evidence is intentionally left to callers.
