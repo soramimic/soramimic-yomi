@@ -7,10 +7,13 @@ pyopenjtalk-plus をベースに、ユーザー辞書と空耳用の正規化ル
 from .candidates import ReadingCandidate, ReadingSpan, get_yomi_candidates
 from .core import get_tokens, get_yomi
 from .rules import normalize
+from .symbols import SymbolSpan, get_symbol_spans
 
 __all__ = [
     "ReadingCandidate",
     "ReadingSpan",
+    "SymbolSpan",
+    "get_symbol_spans",
     "get_tokens",
     "get_yomi",
     "get_yomi_candidates",

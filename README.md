@@ -68,6 +68,7 @@ arpakana は MIT License。e2k はコード自体が Unlicenseで、CMUdict未�
 - 複数桁の通常読みと桁読み（`4443`: `ヨンセン…` / `ヨンヨンヨンサン`）
 - 英字列の単語読みと文字名読み（`AI`: `アイ` / `エーアイ`）
 - CMUdictに登録された英単語の異形発音
+- 記号の通常読みと無音（`○`: `マル` / 無音、`♡`: `ハート` / 無音）
 - 2〜3語の英語窓に対する連結、弱形、境界融合（`did you`: `ディドユー` / `デジュ`）
 - 連結できる英語窓では、二重母音の1モーラ化と窓末尾の単子音省略も候補化
   （`shout it out`: `シャウトイットアウト` / `シャウティタウト` / `シャティタ`）。
@@ -95,6 +96,11 @@ candidate.to_dict()           # APIと同じJSON互換dict
 `POST /yomi_candidates` は単一文字列に `{"candidates": [...]}`、文字列配列に
 `{"candidates": [[...], ...]}` を返す。`nbest` は1〜32。`GET /health` の
 `candidate_contract_version: 1` と `capabilities.reading_nbest: true` で判別できる。
+
+`get_symbol_spans(text)` は記号の表層、元テキスト上の区間、通常の読み候補を返す。
+各区間は無音の候補 `""` を保持し、辞書にない記号も区間として残す。
+利用側は前後の語と音声を照合して、歌われた読みを選択・補完できる。
+既存の `get_yomi()` の既定読みは変わらない。
 
 ## `/tokenize` の token 契約（version 2）
 
