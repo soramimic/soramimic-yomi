@@ -93,6 +93,12 @@ candidate.spans[0].rule       # letter-by-letter
 candidate.to_dict()           # APIと同じJSON互換dict
 ```
 
+`inferred_spans` は、英語辞書に未登録で綴りから推測した読みの区間を示す。
+文字名などの明示ルールで置き換えた区間は含めない。利用側は、この情報で
+推測読みを辞書由来の候補と区別して音声と照合できる。確率を表す値ではない。
+英単語トークンの `pronunciation_source` は `english-override`、`cmudict`、
+`english-g2p` のいずれかで、実際に使った読みの由来を返す。
+
 `POST /yomi_candidates` は単一文字列に `{"candidates": [...]}`、文字列配列に
 `{"candidates": [[...], ...]}` を返す。`nbest` は1〜32。`GET /health` の
 `candidate_contract_version: 1` と `capabilities.reading_nbest: true` で判別できる。

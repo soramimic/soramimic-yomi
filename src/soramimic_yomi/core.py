@@ -13,7 +13,7 @@ import unicodedata
 
 import pyopenjtalk
 
-from .rules.english import _convert_word
+from .rules.english import _word_pronunciation
 from .userdic import ensure_user_dict
 
 # NJDのpronに含まれるアクセント核などの記号(読みとしては不要)
@@ -221,7 +221,7 @@ def get_tokens(text: str, *, apply_rules: bool = False) -> list[dict]:
                 )
             )
         else:
-            pronunciation = _convert_word(surface)
+            pronunciation, pronunciation_source = _word_pronunciation(surface)
             tokens.append(
                 _token(
                     surface,
@@ -232,6 +232,7 @@ def get_tokens(text: str, *, apply_rules: bool = False) -> list[dict]:
                     pos_detail_1="一般",
                 )
             )
+            tokens[-1]["pronunciation_source"] = pronunciation_source
         offset = match.end()
 
     if offset < len(text):

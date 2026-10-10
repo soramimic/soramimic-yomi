@@ -212,6 +212,47 @@ def test_candidates_are_distinct_ranked_and_serializable():
     assert isinstance(payload["spans"], list)
 
 
+def test_spelling_guesses_have_provenance_and_explicit_variants_clear_it(monkeypatch):
+    from soramimic_yomi.rules import english
+
+    english._word_pronunciation.cache_clear()
+    english._convert_word.cache_clear()
+    monkeypatch.setattr(english, "_c2k", lambda: lambda word: "ズク")
+    try:
+        text = "海 zzqzzq 空"
+        candidates = soramimic_yomi.get_yomi_candidates(text, nbest=8)
+        guessed = candidates[0]
+        span, = guessed.inferred_spans
+        assert (span.start, span.end, span.surface, span.reading) == (2, 8, "zzqzzq", "ズク")
+        assert span.source == "english-g2p"
+        assert guessed.to_dict()["inferred_spans"] == [span.to_dict()]
+        spelled = next(c for c in candidates if c.spans and c.spans[0].rule == "letter-by-letter")
+        assert spelled.inferred_spans == ()
+        assert not soramimic_yomi.get_yomi_candidates("nice worried")[0].inferred_spans
+    finally:
+        english._word_pronunciation.cache_clear()
+        english._convert_word.cache_clear()
+
+
+def test_changing_one_unknown_word_keeps_the_other_words_inferred_origin(monkeypatch):
+    from soramimic_yomi.rules import english
+
+    english._word_pronunciation.cache_clear()
+    english._convert_word.cache_clear()
+    monkeypatch.setattr(english, "_c2k", lambda: lambda word: "ズク")
+    try:
+        candidates = soramimic_yomi.get_yomi_candidates("zzqzzq xxqxxq", nbest=8)
+        assert len(candidates[0].inferred_spans) == 2
+        partial = next(c for c in candidates if len(c.spans) == 1)
+        remaining, = partial.inferred_spans
+        assert remaining.surface != partial.spans[0].surface
+        complete = next(c for c in candidates if len(c.spans) == 2)
+        assert complete.inferred_spans == ()
+    finally:
+        english._word_pronunciation.cache_clear()
+        english._convert_word.cache_clear()
+
+
 @pytest.mark.parametrize("text,connected,compact", [
     ("shout it out", "シャウティタウト", "シャティタ"),
     ("Shout it out! Shout it out!", "シャウティタウトシャウティタウト", "シャティタシャティタ"),

@@ -45,6 +45,17 @@ def test_english_rule_c2k_fallback_path():
     assert "エー" not in kana and "エヌ" not in kana  # スペル読みになっていない
 
 
+def test_english_tokens_distinguish_dictionary_from_model_predictions():
+    tokens = [t for t in soramimic_yomi.get_tokens("nice worried anthropic")
+              if not t["is_silent"]]
+    assert [t["pronunciation_source"] for t in tokens] == [
+        "cmudict", "english-override", "english-g2p",
+    ]
+    assert "".join(t["pronunciation"] for t in tokens) == soramimic_yomi.get_yomi(
+        "nice worried anthropic"
+    )
+
+
 def test_accent_marks_stripped():
     # NJDのアクセント記号(’)が読みに混入しないこと
     assert "’" not in soramimic_yomi.get_yomi("うさぎ追いしかの山")
