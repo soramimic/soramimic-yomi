@@ -12,7 +12,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, replace
 from itertools import pairwise
 
-from .core import get_yomi
+from .core import get_tokens, get_yomi
 from .rules import english
 from .symbols import get_symbol_spans
 
@@ -132,6 +132,7 @@ class ReadingCandidate:
     cost: float
     sources: tuple[str, ...]
     spans: tuple[ReadingSpan, ...] = ()
+    inferred_spans: tuple[ReadingSpan, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -140,6 +141,7 @@ class ReadingCandidate:
             "cost": self.cost,
             "sources": list(self.sources),
             "spans": [span.to_dict() for span in self.spans],
+            "inferred_spans": [span.to_dict() for span in self.inferred_spans],
         }
 
 
@@ -494,8 +496,20 @@ def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
     if not 1 <= nbest <= MAX_NBEST:
         raise ValueError(f"nbest must be between 1 and {MAX_NBEST}")
 
-    canonical = get_yomi(text)
-    candidates = [ReadingCandidate(canonical, 0, 0.0, ("canonical",))]
+    tokens = get_tokens(text)
+    canonical = "".join(token["pronunciation"] for token in tokens)
+    inferred = []
+    offset = 0
+    for token in tokens:
+        surface = token["surface_form"]
+        if token.get("pronunciation_source") == "english-g2p":
+            inferred.append(ReadingSpan(
+                offset, offset + len(surface), surface, token["pronunciation"],
+                "english-g2p", "spelling-model",
+            ))
+        offset += len(surface)
+    candidates = [ReadingCandidate(canonical, 0, 0.0, ("canonical",),
+                                   inferred_spans=tuple(inferred))]
     if nbest == 1:
         return candidates
 
@@ -517,6 +531,9 @@ def get_yomi_candidates(text: str, *, nbest: int = 8) -> list[ReadingCandidate]:
             cost=round(sum(edit.cost for edit in state), 6),
             sources=sources,
             spans=tuple(edit.span for edit in ordered_state),
+            inferred_spans=tuple(span for span in inferred
+                                 if not any(_overlaps(span, edit.span)
+                                            for edit in ordered_state)),
         )
         candidates.append(candidate)
         if len(candidates) >= nbest:

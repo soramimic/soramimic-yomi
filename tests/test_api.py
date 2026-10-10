@@ -77,6 +77,7 @@ def test_yomi_candidates_returns_structured_ranked_results():
         "cost": 0.0,
         "sources": ["canonical"],
         "spans": [],
+        "inferred_spans": [],
     }
     assert [candidate["rank"] for candidate in candidates] == list(
         range(len(candidates))

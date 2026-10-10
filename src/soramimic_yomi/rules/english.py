@@ -115,21 +115,27 @@ def _phonemes_to_kana(
 
 
 @cache
-def _convert_word(word: str) -> str:
-    """英単語1語をカナに変換する(語単位でキャッシュ)。"""
+def _word_pronunciation(word: str) -> tuple[str, str]:
+    """Return the pronunciation and the source that actually produced it."""
     # CMUdict uses ASCII apostrophes.  Treat typographic apostrophes as the
     # same lexical spelling while preserving the caller's original surface.
     lower = word.lower().replace("\u2019", "'")
 
     override = _overrides().get(lower)
     if override is not None:
-        return override
+        return override, "english-override"
 
     phonemes = _cmudict().get(lower)
     if phonemes is not None:
-        return _phonemes_to_kana(phonemes)
+        return _phonemes_to_kana(phonemes), "cmudict"
 
-    return _c2k()(lower)
+    return _c2k()(lower), "english-g2p"
+
+
+@cache
+def _convert_word(word: str) -> str:
+    """Convert one English word, preserving the existing reading API."""
+    return _word_pronunciation(word)[0]
 
 
 def normalize(text: str) -> str:
