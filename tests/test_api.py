@@ -42,6 +42,20 @@ def test_tokenize_english_is_lossless_and_readable():
     assert tokens[0]["is_silent"] is False
 
 
+def test_tokenize_numeric_counter_preserves_word_boundaries():
+    text = "晴れた日に2人で公園へ行った"
+    response = client.post("/tokenize", json={"text": text})
+
+    assert response.status_code == 200
+    tokens = response.json()["tokens"]
+    assert "".join(t["surface_form"] for t in tokens) == text
+    assert [t["surface_form"] for t in tokens] == [
+        "晴れ", "た", "日", "に", "2人", "で", "公園", "へ", "行っ", "た",
+    ]
+    assert tokens[4]["pronunciation"] == "フタリ"
+    assert tokens[5]["pos"] == "助詞"
+
+
 def test_tokenize_array_keeps_response_envelope_and_per_input_shape():
     inputs = [" Hello  world ", "don't stop", "don’t stop", "   ", "海、I!"]
     response = client.post("/tokenize", json={"text": inputs})
