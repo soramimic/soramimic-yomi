@@ -23,6 +23,7 @@ _PRON_MARKS = re.compile(r"[’]")
 _NON_YOMI_PRON = {"", "、", "。", "・", "?", "!"}
 _LOSSLESS_PART = re.compile(r"\s+|[A-Za-z]+(?:['\u2019][A-Za-z]+)*")
 _KANJI_NUMBER = frozenset("〇零一二三四五六七八九十百千万億兆京")
+_KANA_SURFACE = re.compile(r"[ぁ-ゖァ-ヺー]+")
 
 
 def _clean_pron(pron: str | None) -> str:
@@ -37,7 +38,15 @@ def _run_frontend(text: str) -> list[dict]:
 def _node_is_silent(node: dict) -> bool:
     # A one-letter Latin token can be classified as an alphabet symbol by
     # pyopenjtalk, but its reading is meaningful (for example I -> アイ).
-    return node["pos"] == "記号" and node["pos_group1"] != "アルファベット"
+    if node["pos"] != "記号" or node["pos_group1"] == "アルファベット":
+        return False
+    # Literal kana such as standalone ノ can also be tagged as symbols.
+    # Keep their supplied pronunciation, while punctuation remains silent.
+    surface = unicodedata.normalize("NFKC", node.get("string", ""))
+    return not (
+        _KANA_SURFACE.fullmatch(surface)
+        and _clean_pron(node["pron"]) not in _NON_YOMI_PRON
+    )
 
 
 def get_yomi(text: str, *, apply_rules: bool = True) -> str:
