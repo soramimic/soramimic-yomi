@@ -6,6 +6,7 @@ import re
 import unicodedata
 
 _KANA = re.compile(r"[ァ-ヺーヽヾ]+")
+_SUPPLIED_KANA = re.compile(r"[ぁ-ゖゝゞァ-ヺーヽヾ]+")
 _SEPARATORS = re.compile(r"[\s・、。,.=:;/!?()\[\]{}「」『』【】〈〉《》<>\-'’\"]+")
 _EXPANDABLE = re.compile(r"[A-Za-z0-9\u3400-\u9fff々〆〇]+")
 _SMALL = str.maketrans("ァィゥェォャュョヮヵヶ", "アイウエオヤユヨワカケ")
@@ -25,6 +26,25 @@ _VOWELS = {
     }.items()
     for char in row
 }
+
+
+def get_word_reading(text: str) -> str:
+    """Normalize kana-only input; infer the whole input when other text occurs.
+
+    Width and surrounding whitespace are normalized before choosing the path.
+    A mixed input goes through get_yomi as a whole, including its kana spans.
+    Both paths return a validated, normalized reading or raise ValueError.
+    """
+    prepared = unicodedata.normalize("NFKC", text).strip()
+    if not prepared or _SUPPLIED_KANA.fullmatch(prepared):
+        return normalize_reading(prepared)
+
+    from .core import get_yomi
+
+    try:
+        return normalize_reading(get_yomi(prepared))
+    except ValueError as exc:
+        raise ValueError(f"指定した読み「{text}」から有効な読みを推定できません。{exc}") from exc
 
 
 def normalize_reading(text: str, *, expand_non_kana: bool = False) -> str:

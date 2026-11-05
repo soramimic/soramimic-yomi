@@ -62,3 +62,56 @@ def test_mixed_reading_expands_only_non_kana_spans(monkeypatch):
 def test_mixed_reading_does_not_discard_unreadable_symbols(text):
     with pytest.raises(ValueError, match="指定した読み"):
         normalize_reading(text, expand_non_kana=True)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("はない", "ハナイ"), ("ハナイ", "ハナイ"), ("はへを", "ハヘヲ"),
+    (" ｳｯｾｪﾜ ", "ウッセエワ"), ("ドーー", "ドーオ"),
+    ("ティーファイル", "ティーファイル"), ("キャァ", "キャア"),
+    ("トウキョウ", "トウキョウ"), ("フュージョン", "フュージョン"),
+    ("いすゞ", "イスズ"),
+])
+def test_word_reading_normalizes_kana_without_frontend(monkeypatch, text, expected):
+    from soramimic_yomi import get_word_reading
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("kana-only readings must not be inferred")
+
+    monkeypatch.setattr("soramimic_yomi.core._run_frontend", forbidden)
+    assert get_word_reading(text) == expected
+
+
+@pytest.mark.parametrize("text, prepared", [
+    ("はないX", "はないX"), (" メカＸ ", "メカX"),
+    ("ポリゴン２", "ポリゴン2"), ("ケルヴィン卿", "ケルヴィン卿"),
+    ("カ ナ", "カ ナ"), ("ハナイ・ティー", "ハナイ・ティー"),
+])
+def test_word_reading_infers_whole_mixed_input(monkeypatch, text, prepared):
+    from soramimic_yomi import get_word_reading
+
+    seen = []
+
+    def infer(value):
+        seen.append(value)
+        return "わないエクス"
+
+    monkeypatch.setattr("soramimic_yomi.core.get_yomi", infer)
+    assert get_word_reading(text) == "ワナイエクス"
+    assert seen == [prepared]
+
+
+@pytest.mark.parametrize("inferred", ["", "  ", "X", "ー"])
+def test_word_reading_rejects_invalid_inferred_result(monkeypatch, inferred):
+    from soramimic_yomi import get_word_reading
+
+    monkeypatch.setattr("soramimic_yomi.core.get_yomi", lambda text: inferred)
+    with pytest.raises(ValueError, match="指定した読み「対象X」"):
+        get_word_reading("対象X")
+
+
+@pytest.mark.parametrize("text", ["", " ", "❤", "???", "ー", "ヾ"])
+def test_word_reading_rejects_unreadable_input(text):
+    from soramimic_yomi import get_word_reading
+
+    with pytest.raises(ValueError, match="指定した読み"):
+        get_word_reading(text)
