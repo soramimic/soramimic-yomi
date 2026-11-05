@@ -23,6 +23,24 @@ soramimic_yomi.get_yomi_candidates("AI 4443")    # 構造化された読みN-bes
 uv add "soramimic-yomi @ git+https://github.com/soramimic/soramimic-yomi"
 ```
 
+指定済みのカナ読みには `normalize_reading()` を使います。文としての読み推定を行わず、
+幅・ひらがな・繰り返し記号を統一し、伸ばし表記の小書き母音を通常の母音に直します。
+中黒・空白などの区切りは発音しません。`ティ`・`ファ`・`キャ`・促音は保持します。
+連続長音は `ドーー` → `ドーオ` のように
+長さを保ち、`オウ`・`エイ` は指定どおり残します。英数字・漢字・空の読みなどは
+`ValueError` になるため、表記から読みを推定する場合は `get_yomi()` を使ってください。
+
+```python
+soramimic_yomi.normalize_reading("はない")   # ハナイ
+soramimic_yomi.normalize_reading("ｳｯｾｪﾜ")  # ウッセエワ
+soramimic_yomi.get_yomi("私は歌う")          # ワタシワウタウ
+```
+
+既存リストの `メガリザードンX` のような読みを受け付ける場合は、
+`normalize_reading(text, expand_non_kana=True)` を使えます。英字・数字・漢字の区間だけを
+`get_yomi()` で読みへ変換し、カナ区間は再推定しません。「はないX」のカナ部分は
+「ハナイ」を保持します。読み取れない記号は、この場合も `ValueError` になります。
+
 **② APIとして**(ブラウザアプリからの利用。soramimicはプログレッシブエンハンスメントで利用予定)
 
 ```sh
