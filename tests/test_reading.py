@@ -16,8 +16,6 @@ from soramimic_yomi import get_yomi, normalize_reading
     ("キャーーー", "キャーアア"), ("セーェ", "セーエ"),
     ("トウキョウ", "トウキョウ"), ("ケイ", "ケイ"),
     ("いすゞ", "イスズ"), ("さゝ", "ササ"), ("ばゝ", "バハ"),
-    ("ハナイ・ティー", "ハナイティー"), ("カ ナ", "カナ"),
-    ("セ・ェ", "セエ"), ("ピエール＝ジル", "ピエールジル"),
 ])
 def test_normalize_supplied_reading_without_inference(text, expected):
     assert normalize_reading(text) == expected
@@ -25,6 +23,7 @@ def test_normalize_supplied_reading_without_inference(text, expected):
 
 
 @pytest.mark.parametrize("text", ["", "  ", "メカX", "メカ２", "東京", "❤", "???",
+                                 "カ ナ", "ハナイ・ティー", "セ・ェ", "ピエール＝ジル",
                                  "ー", "ーハ", "ヾ", "ンヽ", "アヾ"])
 def test_invalid_supplied_reading_is_rejected(text):
     with pytest.raises(ValueError, match="指定した読み"):

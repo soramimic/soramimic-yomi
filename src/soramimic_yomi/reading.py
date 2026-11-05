@@ -34,8 +34,8 @@ def normalize_reading(text: str, *, expand_non_kana: bool = False) -> str:
     outside a compound mora opened. Repeated long marks become explicit vowels
     after the first mark, preserving their number. Literal vowel sequences
     (including オウ and エイ), ハ/ヘ/ヲ, and valid compound moras are preserved.
-    Name separators are silent and keep neighboring moras separate during
-    normalization. Other non-kana input is rejected by default. Opting into
+    Non-kana input, including internal whitespace and name separators, is
+    rejected by default. Opting into
     expand_non_kana resolves only non-kana spans using get_yomi; supplied kana
     never passes through the text frontend, even in a mixed reading.
     """
@@ -52,7 +52,7 @@ def normalize_reading(text: str, *, expand_non_kana: bool = False) -> str:
             out.append(_normalize_kana(chunk, text))
             continue
         lexical = _SEPARATORS.sub("", chunk)
-        if not lexical:
+        if expand_non_kana and not lexical:
             continue
         if expand_non_kana and _EXPANDABLE.fullmatch(lexical):
             from .core import get_yomi
@@ -61,7 +61,7 @@ def normalize_reading(text: str, *, expand_non_kana: bool = False) -> str:
             if inferred:
                 out.append(normalize_reading(inferred))
                 continue
-        invalid = "".join(dict.fromkeys(lexical))
+        invalid = "".join(dict.fromkeys(lexical or chunk))
         raise ValueError(
             f"指定した読み「{text}」に使えない文字「{invalid}」があります。"
             "読みをカナで指定してください。"
